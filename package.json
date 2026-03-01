@@ -1,5 +1,5 @@
 {
-  "name": "booking-monitor",
+  "name": "bms-monitor",
   "version": "1.0.0",
   "main": "monitor.js",
   "type": "commonjs",
@@ -7,7 +7,7 @@
     "start": "node monitor.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "jsdom": "^24.0.0"
+    "axios": "^1.13.6",
+    "puppeteer": "^22.15.0"
   }
 }

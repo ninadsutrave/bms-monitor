@@ -1,7 +1,6 @@
+const puppeteer = require("puppeteer");
 const axios = require("axios");
-const { JSDOM } = require("jsdom");
 
-// ===== ENV VARIABLES =====
 const URL = process.env.TARGET_URL;
 
 const TELEGRAM_CHAT_IDS = [
@@ -14,71 +13,64 @@ const TELEGRAM_TOKENS = [
   process.env.TELEGRAM_BOT_TOKEN_2,
 ].filter(Boolean);
 
-// ===== VALIDATION =====
 if (!URL) {
   console.error("❌ TARGET_URL not defined");
   process.exit(1);
 }
 
-if (TELEGRAM_CHAT_IDS.length === 0) {
-  console.error("❌ No TELEGRAM_CHAT_ID secrets defined");
+if (TELEGRAM_CHAT_IDS.length === 0 || TELEGRAM_TOKENS.length === 0) {
+  console.error("❌ Telegram secrets missing");
   process.exit(1);
 }
 
-if (TELEGRAM_TOKENS.length === 0) {
-  console.error("❌ No TELEGRAM_BOT_TOKEN secrets defined");
-  process.exit(1);
-}
-
-// ===== MAIN FUNCTION =====
 async function checkBooking() {
-  try {
-    console.log(`🔍 Checking booking status at ${new Date().toISOString()}`);
+  console.log(`🔍 Checking booking status at ${new Date().toISOString()}`);
 
-    const response = await axios.get(URL, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-      },
-      timeout: 15000,
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  try {
+    const page = await browser.newPage();
+
+    await page.goto(URL, {
+      waitUntil: "networkidle2",
+      timeout: 60000,
     });
 
-    const dom = new JSDOM(response.data);
-    const document = dom.window.document;
+    // Wait for booking section to load
+    await page.waitForTimeout(4000);
 
-    // 🔎 Restrict ONLY to the booking component
-    const bookingContainer = document.querySelector(
-      'div[style*="background-color:#FFFFFF"].sc-133848s-3'
-    );
+    const status = await page.evaluate(() => {
+      const container = document.querySelector(
+        'div[style*="background-color:#FFFFFF"]'
+      );
 
-    if (!bookingContainer) {
-      console.log("⚠️ Booking container not found");
-      return;
-    }
+      if (!container) return "not_found";
 
-    const text = bookingContainer.textContent.toLowerCase();
+      const text = container.innerText.toLowerCase();
 
-    if (text.includes("coming soon")) {
-      console.log("📌 Status: coming soon");
-      return;
-    }
+      if (text.includes("coming soon")) return "coming_soon";
+      if (text.includes("book now")) return "bookable";
 
-    if (text.includes("book now")) {
-      console.log("📌 Status: bookable");
+      return "unknown";
+    });
+
+    console.log("📌 Status:", status);
+
+    if (status === "bookable") {
       console.log("🚀 BOOKING OPEN — Sending alerts...");
-      await sendTelegramAlert("🎟 Tickets are LIVE! Book now!");
-      return;
+      await sendTelegramAlert("🎟 ICC T20 WC Semi Final 2 tickets are LIVE! Book now!");
     }
 
-    console.log("📌 Status: unknown");
-    console.log("⚠️ Unknown page state");
-
-  } catch (error) {
-    console.error("❌ Error checking booking:", error.message);
+  } catch (err) {
+    console.error("❌ Error checking booking:", err.message);
+  } finally {
+    await browser.close();
   }
 }
 
-// ===== TELEGRAM ALERT =====
 async function sendTelegramAlert(message) {
   for (const token of TELEGRAM_TOKENS) {
     for (const chatId of TELEGRAM_CHAT_IDS) {
@@ -90,7 +82,7 @@ async function sendTelegramAlert(message) {
             text: message,
           }
         );
-        console.log(`✅ Alert sent to ${chatId} via bot`);
+        console.log(`✅ Alert sent to ${chatId}`);
       } catch (error) {
         console.error(
           `❌ Failed for ${chatId}:`,
@@ -101,5 +93,4 @@ async function sendTelegramAlert(message) {
   }
 }
 
-// ===== RUN =====
 checkBooking();
