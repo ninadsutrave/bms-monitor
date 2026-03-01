@@ -1,114 +1,69 @@
-require("dotenv").config();
-
-const puppeteer = require("puppeteer");
 const axios = require("axios");
+const { JSDOM } = require("jsdom");
 
-const URL =
-  "https://in.bookmyshow.com/sports/icc-men-s-t20-world-cup-2026-semi-final-2/ET00474271";
+const URL = process.env.TARGET_URL;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_IDS = process.env.TELEGRAM_CHAT_IDS.split(",");
 
-const TELEGRAM_BOT_TOKEN_1 = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID_1 = process.env.TELEGRAM_CHAT_ID;
-
-const TELEGRAM_BOT_TOKEN_2 = process.env.TELEGRAM_BOT_TOKEN_2;
-const TELEGRAM_CHAT_ID_2 = process.env.TELEGRAM_CHAT_ID_2;
-
-async function sendTelegram(token, chatId, message) {
-  if (!token || !chatId) return;
-
+async function checkBooking() {
   try {
-    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
-      chat_id: chatId,
-      text: message,
-      parse_mode: "Markdown"
+    console.log(`🔍 Checking booking status at ${new Date().toISOString()}`);
+
+    const response = await axios.get(URL, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+      },
     });
 
-    console.log(`✅ Sent to chat ${chatId}`);
-  } catch (err) {
-    console.error(`❌ Failed sending to ${chatId}:`, err.message);
+    const dom = new JSDOM(response.data);
+    const document = dom.window.document;
+
+    // 🔎 Target ONLY the booking container
+    const bookingContainer = document.querySelector(
+      'div[style*="background-color:#FFFFFF"].sc-133848s-3'
+    );
+
+    if (!bookingContainer) {
+      console.log("⚠️ Booking container not found");
+      return;
+    }
+
+    const containerText = bookingContainer.textContent.toLowerCase();
+
+    if (containerText.includes("book now")) {
+      console.log("📌 Status: bookable");
+      console.log("🚀 BOOKING OPEN — Sending alerts...");
+      await sendTelegramAlert("🎟 Tickets are LIVE! Book now!");
+    } else if (containerText.includes("coming soon")) {
+      console.log("📌 Status: coming soon");
+    } else {
+      console.log("📌 Status: unknown");
+      console.log("⚠️ Unknown page state");
+    }
+  } catch (error) {
+    console.error("❌ Error checking booking:", error.message);
   }
 }
 
-async function sendAlert(message) {
-  await sendTelegram(TELEGRAM_BOT_TOKEN_1, TELEGRAM_CHAT_ID_1, message);
-  await sendTelegram(TELEGRAM_BOT_TOKEN_2, TELEGRAM_CHAT_ID_2, message);
-}
-
-(async () => {
-  console.log("🔍 Checking booking status at", new Date().toISOString());
-
-  let browser;
-
-  try {
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    });
-
-    const page = await browser.newPage();
-
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
-    );
-
-    await page.goto(URL, {
-      waitUntil: "networkidle2",
-      timeout: 60000
-    });
-
-    // Extra wait for React hydration
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    const pageText = await page.evaluate(() =>
-      document.body.innerText.toLowerCase()
-    );
-
-    let status = "unknown";
-
-    if (pageText.includes("coming soon")) {
-      status = "coming_soon";
-    }
-
-    if (
-      pageText.includes("book tickets") ||
-      pageText.includes("book now") ||
-      pageText.includes("book")
-    ) {
-      status = "bookable";
-    }
-
-    console.log("📌 Status:", status);
-
-    if (status === "coming_soon") {
-      console.log("⏳ Still Coming Soon");
-    }
-
-    if (status === "bookable") {
-      console.log("🚀 BOOKING OPEN — Sending alerts...");
-
-      for (let i = 1; i <= 10; i++) {
-        const message = `🔥🔥🔥 ALERT ${i}/10 🔥🔥🔥
-
-T20 Semi Final 2 Tickets Are LIVE!
-
-Book immediately on BookMyShow 🚀`;
-
-        await sendAlert(message);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-
-    if (status === "unknown") {
-      console.log("⚠️ Unknown page state");
-
-      // Helpful debug info (first 1000 chars)
-      console.log(
-        "🔎 Page preview:",
-        pageText.substring(0, 1000).replace(/\n/g, " ")
+async function sendTelegramAlert(message) {
+  for (const chatId of TELEGRAM_CHAT_IDS) {
+    try {
+      await axios.post(
+        `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
+        {
+          chat_id: chatId.trim(),
+          text: message,
+        }
+      );
+      console.log(`✅ Alert sent to ${chatId}`);
+    } catch (error) {
+      console.error(
+        `❌ Failed sending to ${chatId}:`,
+        error.response?.data || error.message
       );
     }
-  } catch (err) {
-    console.error("❌ Script failed:", err.message);
-  } finally {
-    if (browser) await browser.close();
   }
-})();
+}
+
+checkBooking();
