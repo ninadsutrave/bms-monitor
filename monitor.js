@@ -6,27 +6,44 @@ const axios = require("axios");
 const URL =
   "https://in.bookmyshow.com/sports/icc-men-s-t20-world-cup-2026-semi-final-2/ET00474271";
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const BOT_1 = {
+  token: process.env.TELEGRAM_BOT_TOKEN,
+  chatId: process.env.TELEGRAM_CHAT_ID
+};
 
-if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-  console.error("❌ Missing TELEGRAM credentials in environment variables");
+const BOT_2 = {
+  token: process.env.TELEGRAM_BOT_TOKEN_2,
+  chatId: process.env.TELEGRAM_CHAT_ID_2
+};
+
+if (!BOT_1.token || !BOT_1.chatId) {
+  console.error("❌ Primary TELEGRAM credentials missing");
   process.exit(1);
 }
 
-async function sendTelegram(message) {
-  return axios.post(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-    {
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-      parse_mode: "Markdown"
-    }
-  );
+async function sendTelegram(bot, message) {
+  if (!bot.token || !bot.chatId) {
+    console.log("⚠️ Skipping undefined bot configuration");
+    return;
+  }
+
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${bot.token}/sendMessage`,
+      {
+        chat_id: bot.chatId,
+        text: message,
+        parse_mode: "Markdown"
+      }
+    );
+    console.log(`✅ Sent via bot (${bot.chatId})`);
+  } catch (err) {
+    console.error(`❌ Failed sending via bot (${bot.chatId}):`, err.message);
+  }
 }
 
 (async () => {
-  console.log("🔍 Checking booking status...");
+  console.log("🔍 Checking booking status at", new Date().toISOString());
 
   let browser;
 
@@ -54,9 +71,7 @@ async function sendTelegram(message) {
         .find(d => d.innerText.trim() === "Coming Soon");
 
       const bookButton = Array.from(document.querySelectorAll("button"))
-        .find(b =>
-          b.innerText.toLowerCase().includes("book")
-        );
+        .find(b => b.innerText.toLowerCase().includes("book"));
 
       if (comingSoonEl) return "coming_soon";
       if (bookButton) return "bookable";
@@ -65,26 +80,21 @@ async function sendTelegram(message) {
 
     console.log("📌 Status:", status);
 
-    if (status === "coming_soon") {
-      console.log("⏳ Still Coming Soon");
-    }
-
     if (status === "bookable") {
       console.log("🚀 BOOKING OPEN — Sending 10 alerts...");
 
       for (let i = 1; i <= 10; i++) {
-        try {
-          await sendTelegram(
-            `🔥🔥🔥 *ALERT ${i}/10* 🔥🔥🔥\n\n*T20 Semi Final 2 Tickets Are LIVE!*\n\nBook now on BookMyShow 🚀`
-          );
+        const message = `🔥🔥🔥 *ALERT ${i}/10* 🔥🔥🔥\n\n*T20 Semi Final 2 Tickets Are LIVE!*\n\nBook now on BookMyShow 🚀`;
 
-          console.log(`✅ Sent alert ${i}/10`);
+        await sendTelegram(BOT_1, message);
+        await sendTelegram(BOT_2, message);
 
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } catch (err) {
-          console.error("Telegram send failed:", err.message);
-        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
+    }
+
+    if (status === "coming_soon") {
+      console.log("⏳ Still Coming Soon");
     }
 
     if (status === "unknown") {
